@@ -582,10 +582,6 @@ namespace ts {
             return nodeLinks[nodeId] || (nodeLinks[nodeId] = { flags: 0 });
         }
 
-        function getObjectFlags(type: Type): ObjectFlags {
-            return isObjectType(type) ? type.objectFlags : 0;
-        }
-
         function isGlobalSourceFile(node: Node) {
             return node.kind === SyntaxKind.SourceFile && !isExternalOrCommonJsModule(<SourceFile>node);
         }
@@ -2326,8 +2322,8 @@ namespace ts {
                         }
                         writer.writeKeyword("this");
                     }
-                    else if (getObjectFlags(type) & ObjectFlags.Reference) {
-                        writeTypeReference(<TypeReference>type, nextFlags);
+                    else if (isTypeReference(type)) {
+                        writeTypeReference(type, nextFlags);
                     }
                     else if (type.flags & TypeFlags.EnumLiteral) {
                         buildSymbolDisplay(getParentOfSymbol(type.symbol), writer, enclosingDeclaration, SymbolFlags.Type, SymbolFormatFlags.None, nextFlags);
@@ -2546,9 +2542,9 @@ namespace ts {
                 }
 
                 function writeLiteralType(type: ObjectType, flags: TypeFormatFlags) {
-                    if (type.objectFlags & ObjectFlags.Mapped) {
-                        if (getConstraintTypeFromMappedType(<MappedType>type).flags & (TypeFlags.TypeParameter | TypeFlags.Index)) {
-                            writeMappedType(<MappedType>type);
+                    if (isMappedType(type)) {
+                        if (getConstraintTypeFromMappedType(type).flags & (TypeFlags.TypeParameter | TypeFlags.Index)) {
+                            writeMappedType(type);
                             return;
                         }
                     }
@@ -3235,7 +3231,7 @@ namespace ts {
                         : elementType;
                     if (!type) {
                         if (isTupleType(parentType)) {
-                            error(declaration, Diagnostics.Tuple_type_0_with_length_1_cannot_be_assigned_to_tuple_with_length_2, typeToString(parentType), getTypeReferenceArity(<TypeReference>parentType), pattern.elements.length);
+                            error(declaration, Diagnostics.Tuple_type_0_with_length_1_cannot_be_assigned_to_tuple_with_length_2, typeToString(parentType), getTypeReferenceArity(parentType), pattern.elements.length);
                         }
                         else {
                             error(declaration, Diagnostics.Type_0_has_no_property_1, typeToString(parentType), propName);
@@ -3733,7 +3729,7 @@ namespace ts {
         }
 
         function getTargetType(type: Type): Type {
-            return getObjectFlags(type) & ObjectFlags.Reference ? (<TypeReference>type).target : type;
+            return isTypeReference(type) ? type.target : type;
         }
 
         function hasBaseType(type: BaseType, checkBase: BaseType) {
@@ -4328,9 +4324,8 @@ namespace ts {
         }
 
         function getTypeWithThisArgument(type: Type, thisArgument?: Type): Type {
-            if (getObjectFlags(type) & ObjectFlags.Reference) {
-                const target = (<TypeReference>type).target;
-                const typeArguments = (<TypeReference>type).typeArguments;
+            if (isTypeReference(type)) {
+                const { target, typeArguments } = type;
                 if (length(target.typeParameters) === length(typeArguments)) {
                     return createTypeReference(target, concatenate(typeArguments, [thisArgument || target.thisType]));
                 }
@@ -4711,8 +4706,8 @@ namespace ts {
         }
 
         function isGenericMappedType(type: Type) {
-            if (getObjectFlags(type) & ObjectFlags.Mapped) {
-                const constraintType = getConstraintTypeFromMappedType(<MappedType>type);
+            if (isMappedType(type)) {
+                const constraintType = getConstraintTypeFromMappedType(type);
                 return maybeTypeOfKind(constraintType, TypeFlags.TypeVariable | TypeFlags.Index);
             }
             return false;
@@ -4721,8 +4716,8 @@ namespace ts {
         function resolveStructuredTypeMembers(type: StructuredType): ResolvedType {
             if (!(<ResolvedType>type).members) {
                 if (isObjectType(type)) {
-                    if (type.objectFlags & ObjectFlags.Reference) {
-                        resolveTypeReferenceMembers(<TypeReference>type);
+                    if (isTypeReference(type)) {
+                        resolveTypeReferenceMembers(type);
                     }
                     else if (type.objectFlags & ObjectFlags.ClassOrInterface) {
                         resolveClassOrInterfaceMembers(<InterfaceType>type);
@@ -4730,8 +4725,8 @@ namespace ts {
                     else if (type.objectFlags & ObjectFlags.Anonymous) {
                         resolveAnonymousTypeMembers(<AnonymousType>type);
                     }
-                    else if (type.objectFlags & ObjectFlags.Mapped) {
-                        resolveMappedTypeMembers(<MappedType>type);
+                    else if (isMappedType(type)) {
+                        resolveMappedTypeMembers(type);
                     }
                 }
                 else if (isUnionType(type)) {
@@ -4854,7 +4849,7 @@ namespace ts {
                     }
                     return isUnionType(t) && baseTypes.length === types.length ? getUnionType(baseTypes) :
                         isIntersectionType(t) && baseTypes.length ? getIntersectionType(baseTypes) :
-                        undefined; //note: this should be impossible...
+                        undefined;
                 }
                 if (isIndexType(t)) {
                     return stringType;
@@ -5345,8 +5340,8 @@ namespace ts {
         function getRestTypeOfSignature(signature: Signature): Type {
             if (signature.hasRestParameter) {
                 const type = getTypeOfSymbol(lastOrUndefined(signature.parameters));
-                if (getObjectFlags(type) & ObjectFlags.Reference && (<TypeReference>type).target === globalArrayType) {
-                    return (<TypeReference>type).typeArguments[0];
+                if (isTypeReference(type) && type.target === globalArrayType) {
+                    return type.typeArguments[0];
                 }
             }
             return anyType;
@@ -6105,7 +6100,7 @@ namespace ts {
 
         function getIndexType(type: Type): Type {
             return maybeTypeOfKind(type, TypeFlags.TypeVariable) ? getIndexTypeForGenericType(<TypeVariable | UnionOrIntersectionType>type) :
-                getObjectFlags(type) & ObjectFlags.Mapped ? getConstraintTypeFromMappedType(<MappedType>type) :
+                isMappedType(type) ? getConstraintTypeFromMappedType(type) :
                 type.flags & TypeFlags.Any || getIndexInfoOfType(type, IndexKind.String) ? stringType :
                 getLiteralTypeFromPropertyNames(type);
         }
@@ -6879,8 +6874,8 @@ namespace ts {
                 if (type.objectFlags & ObjectFlags.Mapped) {
                     return instantiateCached(type, mapper, instantiateMappedType);
                 }
-                if (type.objectFlags & ObjectFlags.Reference) {
-                    return createTypeReference((<TypeReference>type).target, instantiateTypes((<TypeReference>type).typeArguments, mapper));
+                if (isTypeReference(type)) {
+                    return createTypeReference(type.target, instantiateTypes(type.typeArguments, mapper));
                 }
             }
             if (isUnionType(type) && !(type.flags & TypeFlags.Primitive)) {
@@ -7471,10 +7466,10 @@ namespace ts {
                 }
                 else if (target.flags & TypeFlags.TypeParameter) {
                     // A source type { [P in keyof T]: X } is related to a target type T if X is related to T[P].
-                    if (getObjectFlags(source) & ObjectFlags.Mapped && getConstraintTypeFromMappedType(<MappedType>source) === getIndexType(target)) {
-                        if (!(<MappedType>source).declaration.questionToken) {
-                            const templateType = getTemplateTypeFromMappedType(<MappedType>source);
-                            const indexedAccessType = getIndexedAccessType(target, getTypeParameterFromMappedType(<MappedType>source));
+                    if (isMappedType(source) && getConstraintTypeFromMappedType(source) === getIndexType(target)) {
+                        if (!source.declaration.questionToken) {
+                            const templateType = getTemplateTypeFromMappedType(source);
+                            const indexedAccessType = getIndexedAccessType(target, getTypeParameterFromMappedType(source));
                             if (result = isRelatedTo(templateType, indexedAccessType, reportErrors)) {
                                 return result;
                             }
@@ -7518,9 +7513,9 @@ namespace ts {
 
                 if (source.flags & TypeFlags.TypeParameter) {
                     // A source type T is related to a target type { [P in keyof T]: X } if T[P] is related to X.
-                    if (getObjectFlags(target) & ObjectFlags.Mapped && getConstraintTypeFromMappedType(<MappedType>target) === getIndexType(source)) {
-                        const indexedAccessType = getIndexedAccessType(source, getTypeParameterFromMappedType(<MappedType>target));
-                        const templateType = getTemplateTypeFromMappedType(<MappedType>target);
+                    if (isMappedType(target) && getConstraintTypeFromMappedType(target) === getIndexType(source)) {
+                        const indexedAccessType = getIndexedAccessType(source, getTypeParameterFromMappedType(target));
+                        const templateType = getTemplateTypeFromMappedType(target);
                         if (result = isRelatedTo(indexedAccessType, templateType, reportErrors)) {
                             errorInfo = saveErrorInfo;
                             return result;
@@ -7556,9 +7551,9 @@ namespace ts {
                     }
                 }
                 else {
-                    if (getObjectFlags(source) & ObjectFlags.Reference && getObjectFlags(target) & ObjectFlags.Reference && (<TypeReference>source).target === (<TypeReference>target).target) {
+                    if (isTypeReference(source) && isTypeReference(target) && source.target === target.target) {
                         // We have type references to same target type, see if relationship holds for all type arguments
-                        if (result = typeArgumentsRelatedTo(<TypeReference>source, <TypeReference>target, reportErrors)) {
+                        if (result = typeArgumentsRelatedTo(source, target, reportErrors)) {
                             return result;
                         }
                     }
@@ -7593,9 +7588,9 @@ namespace ts {
             function isIdenticalTo(source: Type, target: Type): Ternary {
                 let result: Ternary;
                 if (isObjectType(source) && isObjectType(target)) {
-                    if (source.objectFlags & ObjectFlags.Reference && target.objectFlags & ObjectFlags.Reference && (<TypeReference>source).target === (<TypeReference>target).target) {
+                    if (isTypeReference(source) && isTypeReference(target) && source.target === target.target) {
                         // We have type references to same target type, see if all type arguments are identical
-                        if (result = typeArgumentsRelatedTo(<TypeReference>source, <TypeReference>target, /*reportErrors*/ false)) {
+                        if (result = typeArgumentsRelatedTo(source, target, /*reportErrors*/ false)) {
                             return result;
                         }
                     }
@@ -8380,14 +8375,14 @@ namespace ts {
                 errorMessageChainHead);
         }
 
-        function isArrayType(type: Type): boolean {
-            return getObjectFlags(type) & ObjectFlags.Reference && (<TypeReference>type).target === globalArrayType;
+        function isArrayType(type: Type): type is TypeReference {
+            return isTypeReference(type) && type.target === globalArrayType;
         }
 
-        function isArrayLikeType(type: Type): boolean {
+        function isArrayLikeType(type: Type): type is TypeReference {
             // A type is array-like if it is a reference to the global Array or global ReadonlyArray type,
             // or if it is not the undefined or null type and if it is assignable to ReadonlyArray<any>
-            return getObjectFlags(type) & ObjectFlags.Reference && ((<TypeReference>type).target === globalArrayType || (<TypeReference>type).target === globalReadonlyArrayType) ||
+            return isTypeReference(type) && (type.target === globalArrayType || type.target === globalReadonlyArrayType) ||
                 !(type.flags & TypeFlags.Nullable) && isTypeAssignableTo(type, anyReadonlyArrayType);
         }
 
@@ -8421,15 +8416,6 @@ namespace ts {
                 type.flags & TypeFlags.EnumLiteral ? (<EnumLiteralType>type).baseType :
                 isUnionType(type) && !(type.flags & TypeFlags.Enum) ? getUnionType(sameMap(type.types, getWidenedLiteralType)) :
                 type;
-        }
-
-        /**
-         * Check if a Type was written as a tuple type literal.
-         * Prefer using isTupleLikeType() unless the use of `elementTypes` is required.
-         */
-        //move?
-        function isTupleType(type: Type): boolean {
-            return !!(getObjectFlags(type) & ObjectFlags.Reference && (<TypeReference>type).target.objectFlags & ObjectFlags.Tuple);
         }
 
         function getFalsyFlagsOfTypes(types: Type[]): TypeFlags {
@@ -8563,7 +8549,7 @@ namespace ts {
                     return getUnionType(sameMap(type.types, getWidenedConstituentType));
                 }
                 if (isArrayType(type) || isTupleType(type)) {
-                    return createTypeReference((<TypeReference>type).target, sameMap((<TypeReference>type).typeArguments, getWidenedType));
+                    return createTypeReference(type.target, sameMap(type.typeArguments, getWidenedType));
                 }
             }
             return type;
@@ -8590,7 +8576,7 @@ namespace ts {
                 }
             }
             if (isArrayType(type) || isTupleType(type)) {
-                for (const t of (<TypeReference>type).typeArguments) {
+                for (const t of type.typeArguments) {
                     if (reportWideningErrorsInType(t)) {
                         errorReported = true;
                     }
@@ -8700,7 +8686,7 @@ namespace ts {
         function couldContainTypeVariables(type: Type): boolean {
             const objectFlags = getObjectFlags(type);
             return !!(type.flags & TypeFlags.TypeVariable ||
-                objectFlags & ObjectFlags.Reference && forEach((<TypeReference>type).typeArguments, couldContainTypeVariables) ||
+                isTypeReference(type) && forEach(type.typeArguments, couldContainTypeVariables) ||
                 objectFlags & ObjectFlags.Anonymous && type.symbol && type.symbol.flags & (SymbolFlags.Method | SymbolFlags.TypeLiteral | SymbolFlags.Class) ||
                 objectFlags & ObjectFlags.Mapped ||
                 isUnionOrIntersectionType(type) && couldUnionOrIntersectionContainTypeVariables(type));
@@ -8870,7 +8856,7 @@ namespace ts {
                         }
                     }
                 }
-                else if (getObjectFlags(source) & ObjectFlags.Reference && getObjectFlags(target) & ObjectFlags.Reference && (<TypeReference>source).target === (<TypeReference>target).target) {
+                else if (isTypeReference(source) && isTypeReference(target) && source.target === target.target) {
                     // If source and target are references to the same generic type, infer from type arguments
                     const sourceTypes = (<TypeReference>source).typeArguments || emptyArray;
                     const targetTypes = (<TypeReference>target).typeArguments || emptyArray;
@@ -8935,8 +8921,8 @@ namespace ts {
             }
 
             function inferFromObjectTypes(source: Type, target: Type) {
-                if (getObjectFlags(target) & ObjectFlags.Mapped) {
-                    const constraintType = getConstraintTypeFromMappedType(<MappedType>target);
+                if (isMappedType(target)) {
+                    const constraintType = getConstraintTypeFromMappedType(target);
                     if (isIndexType(constraintType)) {
                         // We're inferring from some source type S to a homomorphic mapped type { [P in keyof T]: X },
                         // where T is a type variable. Use inferTypeForHomomorphicMappedType to infer a suitable source
@@ -8944,7 +8930,7 @@ namespace ts {
                         // such that direct inferences to T get priority over inferences to Partial<T>, for example.
                         const index = indexOf(typeVariables, constraintType.type);
                         if (index >= 0 && !typeInferences[index].isFixed) {
-                            const inferredType = inferTypeForHomomorphicMappedType(source, <MappedType>target);
+                            const inferredType = inferTypeForHomomorphicMappedType(source, target);
                             if (inferredType) {
                                 inferiority++;
                                 inferFromTypes(inferredType, typeVariables[index]);
@@ -8957,7 +8943,7 @@ namespace ts {
                         // We're inferring from some source type S to a mapped type { [P in T]: X }, where T is a type
                         // parameter. Infer from 'keyof S' to T and infer from a union of each property type in S to X.
                         inferFromTypes(getIndexType(source), constraintType);
-                        inferFromTypes(getUnionType(map(getPropertiesOfType(source), getTypeOfSymbol)), getTemplateTypeFromMappedType(<MappedType>target));
+                        inferFromTypes(getUnionType(map(getPropertiesOfType(source), getTypeOfSymbol)), getTemplateTypeFromMappedType(target));
                         return;
                     }
                 }
@@ -16509,11 +16495,8 @@ namespace ts {
                 return undefined;
             }
 
-            if (getObjectFlags(promise) & ObjectFlags.Reference) {
-                if ((<GenericType>promise).target === tryGetGlobalPromiseType()
-                    || (<GenericType>promise).target === getGlobalPromiseLikeType()) {
-                    return (<GenericType>promise).typeArguments[0];
-                }
+            if (isTypeReference(promise) && (promise.target === tryGetGlobalPromiseType() || promise.target === getGlobalPromiseLikeType())) {
+                return promise.typeArguments[0];
             }
 
             const globalPromiseLikeType = getInstantiatedGlobalPromiseLikeType();
@@ -17802,8 +17785,8 @@ namespace ts {
             if (!typeAsIterable.iterableElementType) {
                 // As an optimization, if the type is instantiated directly using the globalIterableType (Iterable<number>),
                 // then just grab its type argument.
-                if ((getObjectFlags(type) & ObjectFlags.Reference) && (<GenericType>type).target === getGlobalIterableType()) {
-                    typeAsIterable.iterableElementType = (<GenericType>type).typeArguments[0];
+                if (isTypeReference(type) && type.target === getGlobalIterableType()) {
+                    typeAsIterable.iterableElementType = type.typeArguments[0];
                 }
                 else {
                     const iteratorFunction = getTypeOfPropertyOfType(type, getPropertyNameForKnownSymbolName("iterator"));
@@ -17848,8 +17831,8 @@ namespace ts {
             if (!typeAsIterator.iteratorElementType) {
                 // As an optimization, if the type is instantiated directly using the globalIteratorType (Iterator<number>),
                 // then just grab its type argument.
-                if ((getObjectFlags(type) & ObjectFlags.Reference) && (<GenericType>type).target === getGlobalIteratorType()) {
-                    typeAsIterator.iteratorElementType = (<GenericType>type).typeArguments[0];
+                if (isTypeReference(type) && type.target === getGlobalIteratorType()) {
+                    typeAsIterator.iteratorElementType = type.typeArguments[0];
                 }
                 else {
                     const iteratorNextFunction = getTypeOfPropertyOfType(type, "next");
@@ -17892,8 +17875,8 @@ namespace ts {
 
             // As an optimization, if the type is instantiated directly using the globalIterableIteratorType (IterableIterator<number>),
             // then just grab its type argument.
-            if ((getObjectFlags(type) & ObjectFlags.Reference) && (<GenericType>type).target === getGlobalIterableIteratorType()) {
-                return (<GenericType>type).typeArguments[0];
+            if (isTypeReference(type) && type.target === getGlobalIterableIteratorType()) {
+                return type.typeArguments[0];
             }
 
             return getElementTypeOfIterable(type, /*errorNode*/ undefined) ||
