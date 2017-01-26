@@ -2330,7 +2330,7 @@ namespace ts {
                         writePunctuation(writer, SyntaxKind.DotToken);
                         appendSymbolNameOnly(type.symbol, writer);
                     }
-                    else if (getObjectFlags(type) & ObjectFlags.ClassOrInterface || type.flags & (TypeFlags.Enum | TypeFlags.TypeParameter)) {
+                    else if (hasObjectFlags(type, ObjectFlags.ClassOrInterface) || type.flags & (TypeFlags.Enum | TypeFlags.TypeParameter)) {
                         // The specified symbol flags need to be reinterpreted as type flags
                         buildSymbolDisplay(type.symbol, writer, enclosingDeclaration, SymbolFlags.Type, SymbolFormatFlags.None, nextFlags);
                     }
@@ -2342,7 +2342,7 @@ namespace ts {
                     else if (isUnionOrIntersectionType(type)) {
                         writeUnionOrIntersectionType(type, nextFlags);
                     }
-                    else if (getObjectFlags(type) & (ObjectFlags.Anonymous | ObjectFlags.Mapped)) {
+                    else if (hasObjectFlags(type, ObjectFlags.Anonymous | ObjectFlags.Mapped)) {
                         writeAnonymousType(<ObjectType>type, nextFlags);
                     }
                     else if (type.flags & TypeFlags.StringOrNumberLiteral) {
@@ -3735,7 +3735,7 @@ namespace ts {
         function hasBaseType(type: BaseType, checkBase: BaseType) {
             return check(type);
             function check(type: BaseType): boolean {
-                if (getObjectFlags(type) & (ObjectFlags.ClassOrInterface | ObjectFlags.Reference)) {
+                if (hasObjectFlags(type, ObjectFlags.ClassOrInterface | ObjectFlags.Reference)) {
                     const target = <InterfaceType>getTargetType(type);
                     return target === checkBase || forEach(getBaseTypes(target), check);
                 }
@@ -7404,7 +7404,7 @@ namespace ts {
 
                 if (isSimpleTypeRelatedTo(source, target, relation, reportErrors ? reportError : undefined)) return Ternary.True;
 
-                if (getObjectFlags(source) & ObjectFlags.ObjectLiteral && source.flags & TypeFlags.FreshLiteral) {
+                if (hasObjectFlags(source, ObjectFlags.ObjectLiteral) && source.flags & TypeFlags.FreshLiteral) {
                     if (hasExcessProperties(<FreshObjectLiteralType>source, target, reportErrors)) {
                         if (reportErrors) {
                             reportRelationError(headMessage, source, target);
@@ -7639,7 +7639,7 @@ namespace ts {
             }
 
             function hasExcessProperties(source: FreshObjectLiteralType, target: Type, reportErrors: boolean): boolean {
-                if (maybeTypeOfKind(target, TypeFlags.Object) && !(getObjectFlags(target) & ObjectFlags.ObjectLiteralPatternWithComputedProperties)) {
+                if (maybeTypeOfKind(target, TypeFlags.Object) && !(hasObjectFlags(target, ObjectFlags.ObjectLiteralPatternWithComputedProperties))) {
                     for (const prop of getPropertiesOfObjectType(source)) {
                         if (!isKnownProperty(target, prop.name)) {
                             if (reportErrors) {
@@ -7867,7 +7867,7 @@ namespace ts {
                 }
                 let result = Ternary.True;
                 const properties = getPropertiesOfObjectType(target);
-                const requireOptionalProperties = relation === subtypeRelation && !(getObjectFlags(source) & ObjectFlags.ObjectLiteral);
+                const requireOptionalProperties = relation === subtypeRelation && !hasObjectFlags(source, ObjectFlags.ObjectLiteral);
                 for (const targetProp of properties) {
                     const sourceProp = getPropertyOfType(source, targetProp.name);
 
@@ -8149,7 +8149,7 @@ namespace ts {
 
         // Return true if the given type is the constructor type for an abstract class
         function isAbstractConstructorType(type: Type) {
-            if (getObjectFlags(type) & ObjectFlags.Anonymous) {
+            if (hasObjectFlags(type, ObjectFlags.Anonymous)) {
                 const symbol = type.symbol;
                 if (symbol && symbol.flags & SymbolFlags.Class) {
                     const declaration = getClassLikeDeclarationOfSymbol(symbol);
@@ -8168,12 +8168,12 @@ namespace ts {
         // some level beyond that.
         function isDeeplyNestedGeneric(type: Type, stack: Type[], depth: number): boolean {
             // We track type references (created by createTypeReference) and instantiated types (created by instantiateType)
-            if (getObjectFlags(type) & (ObjectFlags.Reference | ObjectFlags.Instantiated) && depth >= 5) {
+            if (hasObjectFlags(type, ObjectFlags.Reference | ObjectFlags.Instantiated) && depth >= 5) {
                 const symbol = type.symbol;
                 let count = 0;
                 for (let i = 0; i < depth; i++) {
                     const t = stack[i];
-                    if (getObjectFlags(t) & (ObjectFlags.Reference | ObjectFlags.Instantiated) && t.symbol === symbol) {
+                    if (hasObjectFlags(t, ObjectFlags.Reference | ObjectFlags.Instantiated) && t.symbol === symbol) {
                         count++;
                         if (count >= 5) return true;
                     }
@@ -8499,7 +8499,7 @@ namespace ts {
          * Leave signatures alone since they are not subject to the check.
          */
         function getRegularTypeOfObjectLiteral(type: Type): Type {
-            if (!(getObjectFlags(type) & ObjectFlags.ObjectLiteral && type.flags & TypeFlags.FreshLiteral)) {
+            if (!(hasObjectFlags(type, ObjectFlags.ObjectLiteral) && type.flags & TypeFlags.FreshLiteral)) {
                 return type;
             }
             const regularType = (<FreshObjectLiteralType>type).regularType;
@@ -8542,7 +8542,7 @@ namespace ts {
                 if (type.flags & TypeFlags.Nullable) {
                     return anyType;
                 }
-                if (getObjectFlags(type) & ObjectFlags.ObjectLiteral) {
+                if (hasObjectFlags(type, ObjectFlags.ObjectLiteral)) {
                     return getWidenedTypeOfObjectLiteral(type);
                 }
                 if (isUnionType(type)) {
@@ -8582,7 +8582,7 @@ namespace ts {
                     }
                 }
             }
-            if (getObjectFlags(type) & ObjectFlags.ObjectLiteral) {
+            if (hasObjectFlags(type, ObjectFlags.ObjectLiteral)) {
                 for (const p of getPropertiesOfObjectType(type)) {
                     const t = getTypeOfSymbol(p);
                     if (t.flags & TypeFlags.ContainsWideningType) {
@@ -8684,11 +8684,10 @@ namespace ts {
         // we perform type inference (i.e. a type parameter of a generic function). We cache
         // results for union and intersection types for performance reasons.
         function couldContainTypeVariables(type: Type): boolean {
-            const objectFlags = getObjectFlags(type);
             return !!(type.flags & TypeFlags.TypeVariable ||
                 isTypeReference(type) && forEach(type.typeArguments, couldContainTypeVariables) ||
-                objectFlags & ObjectFlags.Anonymous && type.symbol && type.symbol.flags & (SymbolFlags.Method | SymbolFlags.TypeLiteral | SymbolFlags.Class) ||
-                objectFlags & ObjectFlags.Mapped ||
+                hasObjectFlags(type, ObjectFlags.Anonymous) && type.symbol && type.symbol.flags & (SymbolFlags.Method | SymbolFlags.TypeLiteral | SymbolFlags.Class) ||
+                isMappedType(type) ||
                 isUnionOrIntersectionType(type) && couldUnionOrIntersectionContainTypeVariables(type));
         }
 
@@ -9617,18 +9616,18 @@ namespace ts {
         }
 
         function finalizeEvolvingArrayType(type: Type): Type {
-            return getObjectFlags(type) & ObjectFlags.EvolvingArray ? getFinalArrayType(<EvolvingArrayType>type) : type;
+            return hasObjectFlags(type, ObjectFlags.EvolvingArray) ? getFinalArrayType(<EvolvingArrayType>type) : type;
         }
 
         function getElementTypeOfEvolvingArrayType(type: Type) {
-            return getObjectFlags(type) & ObjectFlags.EvolvingArray ? (<EvolvingArrayType>type).elementType : neverType;
+            return hasObjectFlags(type, ObjectFlags.EvolvingArray) ? (<EvolvingArrayType>type).elementType : neverType;
         }
 
         function isEvolvingArrayTypeList(types: Type[]) {
             let hasEvolvingArrayType = false;
             for (const t of types) {
                 if (!(t.flags & TypeFlags.Never)) {
-                    if (!(getObjectFlags(t) & ObjectFlags.EvolvingArray)) {
+                    if (!(hasObjectFlags(t, ObjectFlags.EvolvingArray))) {
                         return false;
                     }
                     hasEvolvingArrayType = true;
@@ -9701,7 +9700,7 @@ namespace ts {
             // we give type 'any[]' to 'x' instead of using the type determined by control flow analysis such that operations
             // on empty arrays are possible without implicit any errors and new element types can be inferred without
             // type mismatch errors.
-            const resultType = getObjectFlags(evolvedType) & ObjectFlags.EvolvingArray && isEvolvingArrayOperationTarget(reference) ? anyArrayType : finalizeEvolvingArrayType(evolvedType);
+            const resultType = hasObjectFlags(evolvedType, ObjectFlags.EvolvingArray) && isEvolvingArrayOperationTarget(reference) ? anyArrayType : finalizeEvolvingArrayType(evolvedType);
             if (reference.parent.kind === SyntaxKind.NonNullExpression && getTypeWithFacts(resultType, TypeFacts.NEUndefinedOrNull).flags & TypeFlags.Never) {
                 return declaredType;
             }
@@ -9814,7 +9813,7 @@ namespace ts {
                 if (isMatchingReference(reference, getReferenceCandidate(expr))) {
                     const flowType = getTypeAtFlowNode(flow.antecedent);
                     const type = getTypeFromFlowType(flowType);
-                    if (getObjectFlags(type) & ObjectFlags.EvolvingArray) {
+                    if (hasObjectFlags(type, ObjectFlags.EvolvingArray)) {
                         let evolvedType = <EvolvingArrayType>type;
                         if (node.kind === SyntaxKind.CallExpression) {
                             for (const arg of (<CallExpression>node).arguments) {
@@ -10160,10 +10159,10 @@ namespace ts {
                 if (!targetType) {
                     // Target type is type of construct signature
                     let constructSignatures: Signature[];
-                    if (getObjectFlags(rightType) & ObjectFlags.Interface) {
+                    if (hasObjectFlags(rightType, ObjectFlags.Interface)) {
                         constructSignatures = resolveDeclaredMembers(<InterfaceType>rightType).declaredConstructSignatures;
                     }
-                    else if (getObjectFlags(rightType) & ObjectFlags.Anonymous) {
+                    else if (hasObjectFlags(rightType, ObjectFlags.Anonymous)) {
                         constructSignatures = getSignaturesOfType(rightType, SignatureKind.Construct);
                     }
                     if (constructSignatures && constructSignatures.length) {
@@ -11679,7 +11678,7 @@ namespace ts {
                             patternWithComputedProperties = true;
                         }
                     }
-                    else if (contextualTypeHasPattern && !(getObjectFlags(contextualType) & ObjectFlags.ObjectLiteralPatternWithComputedProperties)) {
+                    else if (contextualTypeHasPattern && !hasObjectFlags(contextualType, ObjectFlags.ObjectLiteralPatternWithComputedProperties)) {
                         // If object literal is contextually typed by the implied type of a binding pattern, and if the
                         // binding pattern specifies a default value for the property, make the property optional.
                         const impliedProp = getPropertyOfType(contextualType, member.name);
@@ -12383,7 +12382,7 @@ namespace ts {
             }
 
             // TODO: why is the first part of this check here?
-            if (!(getObjectFlags(getTargetType(type)) & ObjectFlags.ClassOrInterface && hasBaseType(<InterfaceType>type, enclosingClass))) {
+            if (!(hasObjectFlags(getTargetType(type), ObjectFlags.ClassOrInterface) && hasBaseType(<InterfaceType>type, enclosingClass))) {
                 error(errorNode, Diagnostics.Property_0_is_protected_and_only_accessible_through_an_instance_of_class_1, symbolToString(prop), typeToString(enclosingClass));
                 return false;
             }
@@ -14626,7 +14625,7 @@ namespace ts {
         }
 
         function isConstEnumObjectType(type: Type): boolean {
-            return getObjectFlags(type) & ObjectFlags.Anonymous && type.symbol && isConstEnumSymbol(type.symbol);
+            return hasObjectFlags(type, ObjectFlags.Anonymous) && type.symbol && isConstEnumSymbol(type.symbol);
         }
 
         function isConstEnumSymbol(symbol: Symbol): boolean {
@@ -18181,7 +18180,7 @@ namespace ts {
                     checkIndexConstraintForProperty(prop, propType, type, declaredNumberIndexer, numberIndexType, IndexKind.Number);
                 });
 
-                if (getObjectFlags(type) & ObjectFlags.Class && isClassLike(type.symbol.valueDeclaration)) {
+                if (hasObjectFlags(type, ObjectFlags.Class) && isClassLike(type.symbol.valueDeclaration)) {
                     const classDeclaration = <ClassLikeDeclaration>type.symbol.valueDeclaration;
                     for (const member of classDeclaration.members) {
                         // Only process instance properties with computed names here.
@@ -18200,7 +18199,7 @@ namespace ts {
             if (stringIndexType && numberIndexType) {
                 errorNode = declaredNumberIndexer || declaredStringIndexer;
                 // condition 'errorNode === undefined' may appear if types does not declare nor string neither number indexer
-                if (!errorNode && (getObjectFlags(type) & ObjectFlags.Interface)) {
+                if (!errorNode && (hasObjectFlags(type, ObjectFlags.Interface))) {
                     const someBaseTypeHasBothIndexers = forEach(getBaseTypes(<InterfaceType>type), base => getIndexTypeOfType(base, IndexKind.String) && getIndexTypeOfType(base, IndexKind.Number));
                     errorNode = someBaseTypeHasBothIndexers ? undefined : type.symbol.declarations[0];
                 }
@@ -18239,7 +18238,7 @@ namespace ts {
                 else if (indexDeclaration) {
                     errorNode = indexDeclaration;
                 }
-                else if (getObjectFlags(containingType) & ObjectFlags.Interface) {
+                else if (hasObjectFlags(containingType, ObjectFlags.Interface)) {
                     // for interfaces property and indexer might be inherited from different bases
                     // check if any base class already has both property and indexer.
                     // check should be performed only if 'type' is the first type that brings property\indexer together
@@ -22139,6 +22138,43 @@ namespace ts {
                 }
             });
             return result;
+        }
+
+        function isUnionOrIntersectionType(type: Type): type is UnionOrIntersectionType {
+            return !!(type.flags & TypeFlags.UnionOrIntersection);
+        }
+        function isUnionType(type: Type): type is UnionType {
+            return !!(type.flags & TypeFlags.Union);
+        }
+        function isIntersectionType(type: Type): type is IntersectionType {
+            return !!(type.flags & TypeFlags.Intersection);
+        }
+        function isIndexType(type: Type): type is IndexType {
+            return !!(type.flags & TypeFlags.Index);
+        }
+        function isIndexedAccessType(type: Type): type is IndexedAccessType {
+            return !!(type.flags & TypeFlags.IndexedAccess);
+        }
+        function isObjectType(type: Type): type is ObjectType {
+            return !!(type.flags & TypeFlags.Object);
+        }
+        //export function getObjectFlags(type: Type): ObjectFlags { //!!!
+        //    return isObjectType(type) ? type.objectFlags : 0;
+        //}
+        function hasObjectFlags(type: Type, flags: ObjectFlags): boolean {
+            return !!((type as ObjectType).objectFlags & flags);
+        }
+        function isTypeReference(type: Type): type is TypeReference {
+            return !!((type as ObjectType).objectFlags & ObjectFlags.Reference);
+        }
+        function isMappedType(type: Type): type is MappedType {
+            return !!((type as ObjectType).objectFlags & ObjectFlags.Mapped);
+        }
+        /**
+         * Check if a Type was written as a tuple type literal.
+         */
+        function isTupleType(type: Type): type is TypeReference {
+            return !!(isTypeReference(type) && type.target.objectFlags & ObjectFlags.Tuple);
         }
     }
 }
